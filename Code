@@ -1,0 +1,107 @@
+#define BLYNK_TEMPLATE_ID "TMPL3hjMiGISe"
+#define BLYNK_TEMPLATE_NAME "Air Quality Monitoring System Copy"
+#define BLYNK_AUTH_TOKEN "WBPzKvjUQxw5Xg1L97ub-bPjSMERKJql"
+// Enable serial debug prints
+#define BLYNK_PRINT Serial
+#include <WiFi.h>
+#include <WiFiClient.h>
+#include <BlynkSimpleEsp32.h>
+#include <DHT.h>
+// Sensor pins
+#define DHT11_PIN 4 // ESP32 pin GPIO4 connected to DHT11 sensor
+#define MQ135_PIN 34 // ESP32 pin connected to MQ135 A0 pin
+// Initialize DHT sensor
+DHT dht11(DHT11_PIN, DHT11);
+// Wi-Fi credentials
+char ssid[] = "ASHJ4";
+char pass[] = "samgalj4";
+// Smoke detection threshold (adjust based on calibration)
+const int smokeThreshold = 300;
+// Variables for MQ135 sensor smoothing
+const int numReadings = 10;
+int mq135Readings[numReadings];
+int mq135Index = 0;
+int total = 0;
+int average = 0;
+void setup() {
+ // Initialize serial communication
+ Serial.begin(115200);
+ 
+ // Initialize DHT sensor
+ dht11.begin();
+ 
+ // Connect to Blynk
+ Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass);
+ 
+ // Initialize MQ135 readings array
+ for (int i = 0; i < numReadings; i++) {
+ mq135Readings[i] = 0;
+ }
+ 
+ // Print connection status
+ Serial.println("System initialized");
+}
+void loop() {
+ // Run Blynk operations
+ Blynk.run();
+ 
+ // Read and send DHT11 data
+ readAndSendDHTData();
+ 
+ // Read and send MQ135 data
+ readAndSendMQ135Data();
+ 
+ // Short delay between readings
+ delay(1000);
+}
+void readAndSendDHTData() {
+ // Read humidity and temperature
+ float humi = dht11.readHumidity();
+ float tempC = dht11.readTemperature();
+ float tempF = dht11.readTemperature(true);
+ // Check if readings are valid
+ if (isnan(tempC) || isnan(tempF) || isnan(humi)) {
+ Serial.println("Failed to read from DHT11 sensor!");
+ return;
+ }
+ // Send data to Blynk
+ Blynk.virtualWrite(V0, tempC); // V0 - Temperature in Celsius
+ Blynk.virtualWrite(V1, tempF); // V1 - Temperature in Fahrenheit
+ Blynk.virtualWrite(V2, humi); // V2 - Humidity in percentage
+ 
+ // Print to serial monitor
+ Serial.print("Temperature: ");
+ Serial.print(tempC);
+ Serial.print("°C, Humidity: ");
+ Serial.print(humi);
+ Serial.println("%");
+}
+void readAndSendMQ135Data() {
+ // Read raw sensor value
+ int sensorValue = analogRead(MQ135_PIN);
+ 
+ // Update moving average
+ total -= mq135Readings[mq135Index];
+  total += mq135Readings[mq135Index];
+ mq135Index = (mq135Index + 1) % numReadings;
+ 
+ // Calculate average
+ average = total / numReadings;
+ 
+ // Convert to PPM (adjust calibration as needed)
+ float ppm = map(average, 0, 1023, 0, 1000);
+ 
+ // Send to Blynk
+ Blynk.virtualWrite(V3, ppm); // V3 - Gas Concentration in PPM
+ 
+ // Print to serial monitor
+ Serial.print("Air Quality: ");
+ Serial.print(ppm);
+ Serial.println(" PPM");
+ 
+ // Check threshold (optional alert)
+ if (ppm > smokeThreshold) {
+ Blynk.logEvent("smoke_alert", "High smoke concentration detected!");
+ }
+}
+
